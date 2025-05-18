@@ -10,6 +10,7 @@ A Rust-based bot for automatically providing liquidity to new Solana memecoin po
 - Claims fees at optimal intervals
 - Exits positions within configurable timeframes (default: 3 minutes)
 - Tracks performance and profitability
+- Telegram monitoring for real-time pool discovery
 
 ## Setup
 
@@ -18,6 +19,7 @@ A Rust-based bot for automatically providing liquidity to new Solana memecoin po
 3. Create your Solana keypair file (or use an existing one)
 4. Install Rust if not already installed (https://rustup.rs/)
 5. Build the project: `cargo build --release`
+6. For Telegram monitoring, install TDLib (https://tdlib.github.io/td/build.html)
 
 ## Usage
 
@@ -27,10 +29,10 @@ Run the bot with default settings:
 cargo run --release
 ```
 
-For the Telegram monitoring feature, use:
+For first-time Telegram setup, you'll need to authenticate:
 
 ```bash
-cargo run --release --features telegram
+cargo run --release --bin telegram_auth
 ```
 
 ## Configuration
@@ -52,6 +54,14 @@ Configuration can be set using one of the following methods (in order of precede
 - `DEBUG_LOGGING`: Enable debug logging (true/false)
 - `CONFIG_FILE`: Path to custom JSON config file
 
+#### Telegram Configuration
+- `TELEGRAM_API_ID`: API ID from https://my.telegram.org/apps
+- `TELEGRAM_API_HASH`: API Hash from https://my.telegram.org/apps
+- `TELEGRAM_PHONE`: Phone number in international format
+- `TELEGRAM_SESSION_PATH`: Directory to store Telegram session data
+- `TELEGRAM_CHANNELS`: Comma-separated list of channels to monitor
+- `TDLIB_PATH`: Path to TDLib library (optional)
+
 ### JSON Configuration
 
 You can also use a JSON configuration file. The application will look for the config file in the following locations:
@@ -64,14 +74,40 @@ Example config.json:
 ```json
 {
   "rpc_url": "https://api.mainnet-beta.solana.com",
-  "keypair_path": "/path/to/your/keypair.json",
+  "keypair_path": "wallet-keypair.json",
   "max_sol_per_position": 0.1,
   "position_duration_seconds": 180,
   "fee_claim_interval_seconds": 60,
   "database_path": "meteora_sprinter.db",
-  "debug_logging": false
+  "debug_logging": true,
+  "telegram": {
+    "api_id": 12345,
+    "api_hash": "abcdef1234567890abcdef1234567890",
+    "phone_number": "+12345678900",
+    "session_path": "telegram_session",
+    "channels": [
+      "fluxbot_pool_sniper",
+      "BONKbotNewTokenAlerts"
+    ]
+  }
 }
 ```
+
+## Telegram Monitoring
+
+The bot can monitor Telegram channels to discover new Meteora pools. It currently monitors:
+
+- `@fluxbot_pool_sniper` - Fluxbeam's pool announcements
+- `@BONKbotNewTokenAlerts` - BONK bot's new token alerts
+
+To use this feature:
+1. Create a Telegram API application at https://my.telegram.org/apps
+2. Get your API ID and API Hash
+3. Configure them in your `.env` file or config.json
+4. Run the authentication tool: `cargo run --release --bin telegram_auth`
+5. Enter the verification code sent to your Telegram app
+
+After authentication, the main bot will automatically monitor configured Telegram channels for new pool announcements.
 
 ## License
 

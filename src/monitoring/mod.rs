@@ -1,4 +1,4 @@
-mod pool_monitor;
+pub mod pool_monitor;
 #[cfg(feature = "telegram")]
 mod telegram;
 mod websocket;

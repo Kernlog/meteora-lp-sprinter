@@ -1,4 +1,4 @@
-mod pool;
+pub mod pool;
 mod position;
 
 pub use pool::Pool;

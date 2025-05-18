@@ -5,6 +5,9 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+#[cfg(feature = "telegram")]
+use crate::monitoring::telegram::TelegramConfig;
+
 /// Configuration for the Meteora LP Sprinter application
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -22,7 +25,17 @@ pub struct Config {
     pub database_path: String,
     /// Whether to enable debug logging
     pub debug_logging: bool,
+    /// Telegram monitoring configuration
+    #[cfg(feature = "telegram")]
+    pub telegram: Option<TelegramConfig>,
+    #[cfg(not(feature = "telegram"))]
+    pub telegram: Option<DummyTelegramConfig>,
 }
+
+/// Dummy structure for when the telegram feature is disabled
+#[cfg(not(feature = "telegram"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DummyTelegramConfig {}
 
 impl Default for Config {
     fn default() -> Self {
@@ -34,6 +47,10 @@ impl Default for Config {
             fee_claim_interval_seconds: 60,
             database_path: "meteora_sprinter.db".to_string(),
             debug_logging: false,
+            #[cfg(feature = "telegram")]
+            telegram: None,
+            #[cfg(not(feature = "telegram"))]
+            telegram: None,
         }
     }
 }
@@ -116,5 +133,44 @@ fn apply_env_overrides(config: &mut Config) {
     
     if let Ok(debug) = env::var("DEBUG_LOGGING") {
         config.debug_logging = debug.to_lowercase() == "true" || debug == "1";
+    }
+    
+    // Apply Telegram configuration from environment variables
+    #[cfg(feature = "telegram")]
+    apply_telegram_env_overrides(config);
+}
+
+/// Applies Telegram-specific environment variables to the configuration
+#[cfg(feature = "telegram")]
+fn apply_telegram_env_overrides(config: &mut Config) {
+    let mut telegram_config = config.telegram.clone().unwrap_or_default();
+    
+    if let Ok(api_id) = env::var("TELEGRAM_API_ID") {
+        if let Ok(value) = api_id.parse::<i32>() {
+            telegram_config.api_id = value;
+        }
+    }
+    
+    if let Ok(api_hash) = env::var("TELEGRAM_API_HASH") {
+        telegram_config.api_hash = api_hash;
+    }
+    
+    if let Ok(phone) = env::var("TELEGRAM_PHONE") {
+        telegram_config.phone_number = phone;
+    }
+    
+    if let Ok(session_path) = env::var("TELEGRAM_SESSION_PATH") {
+        telegram_config.session_path = session_path;
+    }
+    
+    if let Ok(channels) = env::var("TELEGRAM_CHANNELS") {
+        telegram_config.channels = channels.split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+    }
+    
+    // Only set telegram config if we have the minimum required fields
+    if telegram_config.api_id != 0 && !telegram_config.api_hash.is_empty() && !telegram_config.phone_number.is_empty() {
+        config.telegram = Some(telegram_config);
     }
 } 

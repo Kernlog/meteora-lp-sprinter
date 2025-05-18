@@ -3,6 +3,9 @@ use anyhow::{Result, Context};
 use dotenv::dotenv;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::sync::mpsc;
+use chrono::Utc;
+use solana_sdk::pubkey::Pubkey;
 
 mod config;
 mod solana;
@@ -12,6 +15,11 @@ mod monitoring;
 mod strategy;
 mod meteora;
 mod utils;
+
+use crate::monitoring::PoolMonitor;
+// Temporarily comment out for testing build
+// use monitoring::telegram::TelegramMonitor;
+use models::pool::{Pool, TokenInfo};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -74,10 +82,68 @@ async fn main() -> Result<()> {
     }
     
     // Connect to database
-    let _db = db::Database::new(&config.database_path).await?;
+    let db = db::Database::new(&config.database_path).await?;
     info!("Database initialized");
     
-    // TODO: Implement main application logic
+    // Create a channel for pool discovery
+    let (pool_tx, mut pool_rx) = mpsc::channel::<Pool>(100);
+    
+    // Temporarily comment out Telegram monitoring initialization for testing build
+    /*
+    // Initialize the TelegramMonitor if configured
+    if let Some(telegram_config) = config.telegram.clone() {
+        info!("Initializing Telegram monitoring...");
+        let mut telegram_monitor = match TelegramMonitor::new(telegram_config) {
+            Ok(monitor) => monitor,
+            Err(e) => {
+                error!("Failed to initialize Telegram monitor: {}", e);
+                error!("If this is an authentication issue, run the telegram_auth binary first.");
+                return Err(anyhow::anyhow!("Failed to initialize Telegram monitor"));
+            }
+        };
+        
+        // Start the monitor
+        match telegram_monitor.start_monitoring(pool_tx.clone()).await {
+            Ok(_) => info!("Telegram monitoring started successfully"),
+            Err(e) => {
+                error!("Failed to start Telegram monitoring: {}", e);
+                error!("If this is an authentication issue, run the telegram_auth binary first.");
+                return Err(anyhow::anyhow!("Failed to start Telegram monitoring"));
+            }
+        }
+    } else {
+        info!("Telegram monitoring disabled (no configuration found)");
+    }
+    */
+    info!("Telegram monitoring temporarily disabled for testing build");
+    
+    // Process discovered pools
+    let process_pools_handle = tokio::spawn(async move {
+        info!("Starting pool processing loop");
+        
+        while let Some(pool) = pool_rx.recv().await {
+            info!("New pool discovered: {}", pool.address);
+            
+            // Save the pool to the database
+            match db.save_pool(&pool).await {
+                Ok(_) => info!("Saved pool {} to database", pool.address),
+                Err(e) => error!("Failed to save pool to database: {}", e),
+            }
+            
+            // TODO: Analyze the pool and decide whether to provide liquidity
+            // This will be implemented in the strategy module
+        }
+    });
+    
+    // Wait for Ctrl+C signal
+    tokio::signal::ctrl_c().await?;
+    info!("Shutdown signal received");
+    
+    // Close the pool channel to terminate the processing loop
+    drop(pool_tx);
+    
+    // Wait for the processing to complete
+    let _ = tokio::time::timeout(Duration::from_secs(5), process_pools_handle).await;
     
     info!("Shutting down...");
     Ok(())
