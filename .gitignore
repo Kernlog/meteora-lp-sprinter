@@ -19,3 +19,14 @@ target/
 # Added by cargo
 
 /target
+
+# Environment variables
+.env
+
+# Database files
+*.db
+*.db-*
+
+# Keypair files (for security)
+*.keypair
+keypair.json
