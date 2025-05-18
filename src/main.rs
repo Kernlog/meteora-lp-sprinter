@@ -29,8 +29,7 @@ async fn main() -> Result<()> {
     let _solana_client = solana::SolanaClient::new(&config.rpc_url);
     
     // Connect to database
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| String::from("meteora_sprinter.db"));
-    let _db = db::Database::new(&db_url).await?;
+    let _db = db::Database::new(&config.database_path).await?;
     info!("Database initialized");
     
     // TODO: Implement main application logic

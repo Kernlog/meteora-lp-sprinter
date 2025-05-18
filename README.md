@@ -35,13 +35,43 @@ cargo run --release --features telegram
 
 ## Configuration
 
-Configuration can be set in the .env file or via environment variables:
+Configuration can be set using one of the following methods (in order of precedence):
+
+1. **Environment variables** (highest priority)
+2. **JSON configuration file**
+3. **Default values** (lowest priority)
+
+### Environment Variables
 
 - `RPC_URL`: Solana RPC endpoint URL
-- `DATABASE_URL`: SQLite database file path
+- `KEYPAIR_PATH`: Path to your Solana keypair file
 - `MAX_SOL_PER_POSITION`: Maximum SOL to allocate per liquidity position
 - `POSITION_DURATION_SECONDS`: How long to hold a position (default: 180 seconds)
 - `FEE_CLAIM_INTERVAL_SECONDS`: How often to claim fees (default: 60 seconds)
+- `DATABASE_URL`: SQLite database file path
+- `DEBUG_LOGGING`: Enable debug logging (true/false)
+- `CONFIG_FILE`: Path to custom JSON config file
+
+### JSON Configuration
+
+You can also use a JSON configuration file. The application will look for the config file in the following locations:
+
+1. Path specified in the `CONFIG_FILE` environment variable
+2. `./config.json` in the current directory
+3. `~/.config/meteora-lp-sprinter/config.json`
+
+Example config.json:
+```json
+{
+  "rpc_url": "https://api.mainnet-beta.solana.com",
+  "keypair_path": "/path/to/your/keypair.json",
+  "max_sol_per_position": 0.1,
+  "position_duration_seconds": 180,
+  "fee_claim_interval_seconds": 60,
+  "database_path": "meteora_sprinter.db",
+  "debug_logging": false
+}
+```
 
 ## License
 

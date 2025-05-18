@@ -1,0 +1,9 @@
+{
+  "rpc_url": "https://api.mainnet-beta.solana.com",
+  "keypair_path": "/path/to/your/keypair.json",
+  "max_sol_per_position": 0.1,
+  "position_duration_seconds": 180,
+  "fee_claim_interval_seconds": 60,
+  "database_path": "meteora_sprinter.db",
+  "debug_logging": false
+} 
