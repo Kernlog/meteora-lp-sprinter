@@ -1,7 +1,11 @@
 use anyhow::Result;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::transaction::Transaction;
+use std::str::FromStr;
 use crate::solana::SolanaClient;
+
+// Meteora DAMM v2 program ID
+const METEORA_PROGRAM_ID: &str = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG";
 
 /// Client for interacting with Meteora DAMM v2 pools
 pub struct MeteoraClient {
@@ -12,8 +16,9 @@ pub struct MeteoraClient {
 impl MeteoraClient {
     /// Create a new Meteora client
     pub fn new(client: SolanaClient) -> Self {
-        // Meteora DAMM v2 program ID (placeholder - should be updated with actual ID)
-        let program_id = Pubkey::new_unique(); // Replace with actual program ID
+        // Parse the Meteora DAMM v2 program ID
+        let program_id = Pubkey::from_str(METEORA_PROGRAM_ID)
+            .expect("Failed to parse Meteora program ID");
         
         Self { client, program_id }
     }
