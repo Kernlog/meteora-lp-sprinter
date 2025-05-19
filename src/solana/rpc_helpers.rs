@@ -11,8 +11,17 @@ use std::str::FromStr;
 use borsh::BorshDeserialize;
 use base64;
 use bs58;
+use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
 
 use crate::solana::client::SolanaClient;
+use crate::models::pool::TokenInfo;
+
+// SPL Token Program ID
+pub const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+// Token Metadata Program ID - Metaplex
+pub const TOKEN_METADATA_PROGRAM_ID: &str = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 /// Find program accounts with specific offset and data
 pub async fn find_program_accounts_by_data(
@@ -92,4 +101,151 @@ pub fn get_multiple_accounts_with_handling(
     }
     
     Ok(accounts)
+}
+
+/// SPL Token account layout
+#[derive(Debug, Clone)]
+pub struct TokenAccountInfo {
+    pub mint: Pubkey,
+    pub owner: Pubkey,
+    pub amount: u64,
+    pub decimals: u8,
+}
+
+/// Simple token metadata structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenMetadata {
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
+}
+
+/// Get SPL Token account information
+pub async fn get_token_account_info(client: &SolanaClient, account: &Pubkey) -> Result<TokenAccountInfo> {
+    let account_data = client.get_account(account)?;
+    
+    // Parsing token account data
+    // Standard SPL token account layout has mint at bytes 0-32
+    if account_data.data.len() < 40 {
+        return Err(anyhow!("Account data too short to be a token account"));
+    }
+    
+    // Explicitly specify types for conversion
+    let mint_bytes: [u8; 32] = account_data.data[0..32].try_into().unwrap_or([0u8; 32]);
+    let mint = Pubkey::new_from_array(mint_bytes);
+    let owner_bytes: [u8; 32] = account_data.data[32..64].try_into().unwrap_or([0u8; 32]);
+    let owner = Pubkey::new_from_array(owner_bytes);
+    
+    // Amount is stored at bytes 64-72 as a u64
+    let amount = u64::from_le_bytes([
+        account_data.data[64], account_data.data[65], 
+        account_data.data[66], account_data.data[67],
+        account_data.data[68], account_data.data[69], 
+        account_data.data[70], account_data.data[71],
+    ]);
+    
+    // Decimals might not be directly stored in token accounts
+    // We'll need to fetch it from the mint account
+    let decimals = get_token_decimals(client, &mint).await?;
+    
+    Ok(TokenAccountInfo {
+        mint,
+        owner,
+        amount,
+        decimals,
+    })
+}
+
+/// Get token decimals from a mint account
+pub async fn get_token_decimals(client: &SolanaClient, mint: &Pubkey) -> Result<u8> {
+    let mint_account = client.get_account(mint)?;
+    
+    // SPL token mint accounts store decimals at byte 44
+    if mint_account.data.len() < 45 {
+        return Err(anyhow!("Mint account data too short"));
+    }
+    
+    Ok(mint_account.data[44])
+}
+
+/// Fetch token metadata from Metaplex
+pub async fn get_token_metadata(client: &SolanaClient, mint: &Pubkey) -> Result<TokenMetadata> {
+    let token_metadata_program_id = parse_pubkey(TOKEN_METADATA_PROGRAM_ID)?;
+    
+    // Calculate metadata account PDA
+    let metadata_seeds = &[
+        "metadata".as_bytes(),
+        token_metadata_program_id.as_ref(),
+        mint.as_ref(),
+    ];
+    
+    let (metadata_address, _) = find_pda(metadata_seeds, &token_metadata_program_id)?;
+    
+    // Attempt to get the metadata account
+    match client.get_account(&metadata_address) {
+        Ok(account) => {
+            
+            // Skip the first 1 + 32 + 32 + 4 bytes (header + update auth + mint + name length)
+            let mut pos = 1 + 32 + 32 + 4;
+            
+            // Extract name
+            let name_len = u32::from_le_bytes([
+                account.data[pos-4], account.data[pos-3], 
+                account.data[pos-2], account.data[pos-1]
+            ]) as usize;
+            let name = String::from_utf8_lossy(&account.data[pos..pos+name_len]).to_string();
+            pos += name_len + 4; // Move past name and symbol length
+            
+            // Extract symbol
+            let symbol_len = u32::from_le_bytes([
+                account.data[pos-4], account.data[pos-3], 
+                account.data[pos-2], account.data[pos-1]
+            ]) as usize;
+            let symbol = String::from_utf8_lossy(&account.data[pos..pos+symbol_len]).to_string();
+            pos += symbol_len + 4; // Move past symbol and uri length
+            
+            // Extract URI
+            let uri_len = u32::from_le_bytes([
+                account.data[pos-4], account.data[pos-3], 
+                account.data[pos-2], account.data[pos-1]
+            ]) as usize;
+            let uri = String::from_utf8_lossy(&account.data[pos..pos+uri_len]).to_string();
+            
+            Ok(TokenMetadata { name, symbol, uri })
+        },
+        Err(_) => {
+            // If we can't find metadata, return placeholder values
+            Ok(TokenMetadata {
+                name: format!("Token {}", mint.to_string()[0..8].to_string()),
+                symbol: format!("TOKEN"),
+                uri: String::new(),
+            })
+        }
+    }
+}
+
+/// Helper to fetch token info for a mint
+pub async fn fetch_token_info(client: &SolanaClient, mint: &Pubkey) -> Result<TokenInfo> {
+    // Get decimals
+    let decimals = match get_token_decimals(client, mint).await {
+        Ok(d) => Some(d),
+        Err(_) => None,
+    };
+    
+    // Try to get metadata
+    let metadata = match get_token_metadata(client, mint).await {
+        Ok(meta) => meta,
+        Err(_) => TokenMetadata {
+            name: format!("Unknown {}", mint.to_string()[0..8].to_string()),
+            symbol: "UNKNOWN".to_string(),
+            uri: String::new(),
+        }
+    };
+    
+    Ok(TokenInfo {
+        mint: *mint,
+        name: Some(metadata.name),
+        symbol: Some(metadata.symbol),
+        decimals,
+    })
 } 

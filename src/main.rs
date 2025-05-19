@@ -19,7 +19,9 @@ mod utils;
 use crate::monitoring::PoolMonitor;
 // Temporarily comment out for testing build
 // use monitoring::telegram::TelegramMonitor;
+use monitoring::websocket::MeteoraPoolMonitor;
 use models::pool::{Pool, TokenInfo};
+use strategy::analysis::{PoolAnalyzer, PoolCriteria};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -85,6 +87,11 @@ async fn main() -> Result<()> {
     let db = db::Database::new(&config.database_path).await?;
     info!("Database initialized");
     
+    // Initialize the pool analyzer with default criteria
+    let pool_analyzer = PoolAnalyzer::new(solana_client.clone());
+    let pool_criteria = PoolCriteria::default();
+    info!("Pool analyzer initialized with min score: {}", pool_criteria.min_score);
+    
     // Create a channel for pool discovery
     let (pool_tx, mut pool_rx) = mpsc::channel::<Pool>(100);
     
@@ -117,11 +124,26 @@ async fn main() -> Result<()> {
     */
     info!("Telegram monitoring temporarily disabled for testing build");
     
+    // Initialize and start Meteora websocket monitoring
+    info!("Initializing Meteora websocket monitoring...");
+    let mut meteora_monitor = MeteoraPoolMonitor::new(config.rpc_url.clone());
+    match meteora_monitor.start_monitoring(pool_tx.clone()).await {
+        Ok(_) => info!("Meteora websocket monitoring started successfully"),
+        Err(e) => {
+            error!("Failed to start Meteora websocket monitoring: {}", e);
+            return Err(anyhow::anyhow!("Failed to start Meteora websocket monitoring"));
+        }
+    }
+    
     // Process discovered pools
+    let pool_analyzer_clone = pool_analyzer;
+    let pool_criteria_clone = pool_criteria;
+    let db_clone = db.clone();
+    
     let process_pools_handle = tokio::spawn(async move {
         info!("Starting pool processing loop");
         
-        while let Some(pool) = pool_rx.recv().await {
+        while let Some(mut pool) = pool_rx.recv().await {
             info!("New pool discovered: {}", pool.address);
             
             // Save the pool to the database
@@ -130,14 +152,40 @@ async fn main() -> Result<()> {
                 Err(e) => error!("Failed to save pool to database: {}", e),
             }
             
-            // TODO: Analyze the pool and decide whether to provide liquidity
-            // This will be implemented in the strategy module
+            // Analyze the pool
+            info!("Analyzing pool {}", pool.address);
+            match pool_analyzer_clone.analyze_pool(&mut pool).await {
+                Ok(score) => {
+                    info!("Pool {} analyzed, score: {:.2}", pool.address, score);
+                    
+                    // Update the pool in the database with analysis results
+                    if let Err(e) = db_clone.save_pool(&pool).await {
+                        error!("Failed to update pool analysis in database: {}", e);
+                    }
+                    
+                    // Check if the pool meets our criteria for liquidity provision
+                    if pool_analyzer_clone.meets_criteria(&pool, &pool_criteria_clone) {
+                        info!("Pool {} meets criteria for liquidity provision!", pool.address);
+                        // TODO: Implement liquidity provision strategy
+                    } else {
+                        info!("Pool {} does not meet criteria for liquidity provision", pool.address);
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to analyze pool {}: {}", pool.address, e);
+                }
+            }
         }
     });
     
     // Wait for Ctrl+C signal
     tokio::signal::ctrl_c().await?;
     info!("Shutdown signal received");
+    
+    // Stop the Meteora websocket monitoring
+    if let Err(e) = meteora_monitor.stop().await {
+        error!("Error stopping Meteora websocket monitoring: {}", e);
+    }
     
     // Close the pool channel to terminate the processing loop
     drop(pool_tx);

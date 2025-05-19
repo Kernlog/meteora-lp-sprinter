@@ -231,4 +231,9 @@ impl SolanaClient {
             }
         }
     }
+    
+    /// Get the underlying RPC client
+    pub fn rpc_client(&self) -> &RpcClient {
+        &self.rpc_client
+    }
 } 

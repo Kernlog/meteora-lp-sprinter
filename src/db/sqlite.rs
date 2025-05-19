@@ -9,6 +9,7 @@ use solana_sdk::pubkey::Pubkey;
 use crate::models::pool::{Pool, TokenInfo};
 
 /// Database manager for handling SQLite operations
+#[derive(Clone)]
 pub struct Database {
     pool: SqlitePool,
 }

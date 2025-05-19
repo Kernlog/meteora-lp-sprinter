@@ -1,5 +1,5 @@
 mod sprint;
-mod analysis;
+pub mod analysis;
 
 pub use sprint::SprintStrategy;
 pub use analysis::PoolAnalyzer;
